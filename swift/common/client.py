@@ -185,7 +185,7 @@ def _get_auth_v1_0(url, user, key, snet):
                                                 resp.getheader('x-auth-token'))
 
 
-def _get_auth_v2_0(url, user, key, snet):
+def _get_auth_v2_0(url, user, key, snet, os_region):
     if ':' in user:
         tenant, user = user.split(':')
     else:
@@ -202,7 +202,10 @@ def _get_auth_v2_0(url, user, key, snet):
         catalogs = body['access']['serviceCatalog']
         for service in catalogs:
             if service['type'] == 'object-store':
-                url = service['endpoints'][0]['publicURL']
+                swiftendpoints = service['endpoints']
+                for swendpoint in swiftendpoints:
+                    if swendpoint['region'] == os_region:
+                        url = swendpoint['publicURL']
         token_id = body['access']['token']['id']
         if not url:
             raise ClientException("There is no object-store endpoint " \
@@ -219,7 +222,7 @@ def _get_auth_v2_0(url, user, key, snet):
     return url, token_id
 
 
-def get_auth(url, user, key, snet=False, auth_version="1.0"):
+def get_auth(url, user, key, os_region, snet=False, auth_version="1.0" ):
     """
     Get authentication/authorization credentials.
 
@@ -234,13 +237,14 @@ def get_auth(url, user, key, snet=False, auth_version="1.0"):
     :param key: key or password for authorization
     :param snet: use SERVICENET internal network (see above), default is False
     :param auth_version: OpenStack authentication version (default is 1.0)
+    :param os_region: Openstack region name in keystone auth.
     :returns: tuple of (storage URL, auth token)
     :raises: ClientException: HTTP GET request to auth URL failed
     """
     if auth_version in ["1.0", "1"]:
         return _get_auth_v1_0(url, user, key, snet)
     elif auth_version in ["2.0", "2"]:
-        return _get_auth_v2_0(url, user, key, snet)
+        return _get_auth_v2_0(url, user, key, snet, os_region)
 
 
 def get_account(url, token, marker=None, limit=None, prefix=None,
@@ -794,7 +798,7 @@ class Connection(object):
 
     def __init__(self, authurl, user, key, retries=5, preauthurl=None,
                  preauthtoken=None, snet=False, starting_backoff=1,
-                 auth_version="1"):
+                 auth_version="1", os_region="RegionOne"):
         """
         :param authurl: authentication URL
         :param user: user name to authenticate as
@@ -805,6 +809,7 @@ class Connection(object):
                              authenticated)
         :param snet: use SERVICENET internal network default is False
         :param auth_version: Openstack auth version.
+        :param os_region: Openstack region for keystone based auth
         """
         self.authurl = authurl
         self.user = user
@@ -817,10 +822,11 @@ class Connection(object):
         self.snet = snet
         self.starting_backoff = starting_backoff
         self.auth_version = auth_version
+        self.os_region = os_region
 
     def get_auth(self):
         return get_auth(self.authurl, self.user, self.key, snet=self.snet,
-                        auth_version=self.auth_version)
+                        auth_version=self.auth_version, os_region=self.os_region)
 
     def http_connection(self):
         return http_connection(self.url)
